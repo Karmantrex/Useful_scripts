@@ -8,42 +8,27 @@ PLIST_PATH="/Users/$USERNAME/Library/LaunchAgents/${AGENT_NAME}.plist"
 create_helper_script() {
     echo "[*] Creating helper script at $SCRIPT_PATH..."
 
-    cat <<EOF > "$SCRIPT_PATH"
+    cat <<'EOF' > "$SCRIPT_PATH"
 #!/bin/bash
 
 DESIRED_TZ="America/New_York"
-CURRENT_TZ=\$(/usr/sbin/systemsetup -gettimezone | awk '{print \$3}')
+CURRENT_TZ=$(/usr/sbin/systemsetup -gettimezone | awk '{print $3}')
 
 # Check time offset using ntpdate
-OFFSET=\$(/usr/sbin/ntpdate -q time.apple.com 2>/dev/null | grep offset | awk '{print \$10}')
-OFFSET_CLEAN=\$(echo "\$OFFSET" | awk '{printf("%.0f", \$1 * 1000)}')
-ABS_OFFSET=\$(echo \${OFFSET_CLEAN#-})
+OFFSET=$(/usr/sbin/ntpdate -q time.apple.com 2>/dev/null | grep offset | awk '{print $10}')
+OFFSET_CLEAN=$(echo "$OFFSET" | awk '{printf("%.0f", $1 * 1000)}')
+ABS_OFFSET=$(echo ${OFFSET_CLEAN#-})
 
 # Define threshold in milliseconds (60000ms = 60 seconds)
 THRESHOLD=60000
 
-if [[ "\$CURRENT_TZ" != "\$DESIRED_TZ" || \$ABS_OFFSET -gt \$THRESHOLD ]]; then
-    echo "[*] Detected timezone or time drift. Applying correction..."
-
-    echo "[*] Turning OFF network time temporarily to reset everything..."
-    sudo /usr/sbin/systemsetup -setusingnetworktime off
-
-    echo "[*] Setting timezone to \$DESIRED_TZ..."
-    sudo /usr/sbin/systemsetup -settimezone "\$DESIRED_TZ"
-
-    echo "[*] Forcing immediate time sync with Apple NTP server..."
-    sudo /usr/sbin/sntp -sS time.apple.com
-
-    echo "[*] Re-enabling network time sync..."
-    sudo /usr/sbin/systemsetup -setusingnetworktime on
-
-    echo "[*] Restarting macOS time services..."
-    sudo killall -HUP timed
-    sudo killall SystemUIServer
-
-    echo "[\u2713] Timezone and system time successfully corrected to New York (EDT)"
-else
-    echo "[*] Time and timezone are already correct. No action taken."
+if [[ "$CURRENT_TZ" != "$DESIRED_TZ" || $ABS_OFFSET -gt $THRESHOLD ]]; then
+    osascript -e 'do shell script "/usr/sbin/systemsetup -setusingnetworktime off" with administrator privileges'
+    osascript -e "do shell script \"/usr/sbin/systemsetup -settimezone '$DESIRED_TZ'\" with administrator privileges"
+    osascript -e 'do shell script "/usr/sbin/sntp -sS time.apple.com" with administrator privileges'
+    osascript -e 'do shell script "/usr/sbin/systemsetup -setusingnetworktime on" with administrator privileges'
+    osascript -e 'do shell script "killall -HUP timed" with administrator privileges'
+    osascript -e 'do shell script "killall SystemUIServer" with administrator privileges'
 fi
 EOF
 
@@ -82,12 +67,13 @@ start_enforcement() {
     create_launch_agent
 
     echo "[*] Loading LaunchAgent..."
+    launchctl unload "$PLIST_PATH" 2>/dev/null
     launchctl load "$PLIST_PATH"
 
     echo "[*] Executing the helper script immediately..."
     "$SCRIPT_PATH"
 
-    echo "[\u2713] Timezone enforcement started."
+    echo "[✓] Timezone enforcement started."
 }
 
 stop_enforcement() {
@@ -97,7 +83,7 @@ stop_enforcement() {
     echo "[*] Removing helper script and LaunchAgent plist..."
     rm -f "$SCRIPT_PATH" "$PLIST_PATH"
 
-    echo "[\u2713] Timezone enforcement stopped and cleaned up."
+    echo "[✓] Timezone enforcement stopped and cleaned up."
 }
 
 case "$1" in
