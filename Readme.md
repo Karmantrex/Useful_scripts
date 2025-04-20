@@ -1,6 +1,7 @@
 To use the timezone_enforcer.
 
 Make sure to turn of the all the feature in Date & Time in Mac setting 
+
  Set date and time Automatically
  24 Hour time
  Set time zone automatically using your current location
