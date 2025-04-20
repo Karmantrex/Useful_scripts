@@ -23,12 +23,16 @@ ABS_OFFSET=$(echo ${OFFSET_CLEAN#-})
 THRESHOLD=60000
 
 if [[ "$CURRENT_TZ" != "$DESIRED_TZ" || $ABS_OFFSET -gt $THRESHOLD ]]; then
-    osascript -e 'do shell script "/usr/sbin/systemsetup -setusingnetworktime off" with administrator privileges'
-    osascript -e "do shell script \"/usr/sbin/systemsetup -settimezone '$DESIRED_TZ'\" with administrator privileges"
-    osascript -e 'do shell script "/usr/sbin/sntp -sS time.apple.com" with administrator privileges'
-    osascript -e 'do shell script "/usr/sbin/systemsetup -setusingnetworktime on" with administrator privileges'
-    osascript -e 'do shell script "killall -HUP timed" with administrator privileges'
-    osascript -e 'do shell script "killall SystemUIServer" with administrator privileges'
+    osascript <<END
+do shell script "
+/usr/sbin/systemsetup -setusingnetworktime off
+/usr/sbin/systemsetup -settimezone '$DESIRED_TZ'
+/usr/sbin/sntp -sS time.apple.com
+/usr/sbin/systemsetup -setusingnetworktime on
+killall -HUP timed
+killall SystemUIServer
+" with administrator privileges
+END
 fi
 EOF
 
