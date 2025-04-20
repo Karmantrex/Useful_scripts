@@ -1,19 +1,34 @@
-To use the timezone_enforcer.
+🧭 How to Use the timezone_enforcer on macOS
+Before running the script, make sure to disable the following options in System Settings → Date & Time:
 
-Make sure to turn of the all the feature in Date & Time in Mac setting such as
- Set date and time Automatically
- 24 Hour time
- Set time zone automatically using your current location
+Set date and time automatically
 
+24-Hour Time
 
+Set time zone automatically using your current location
 
-Now save the file with the name timezone_enforcer
+🔧 Setup Instructions
+Save the script with the name:
 
-Give execute permission using 
+bash
+Copy
+Edit
+timezone_enforcer.sh
+Make it executable by running:
 
-Chmod +x timezone_enforce
+bash
+Copy
+Edit
+chmod +x timezone_enforcer.sh
+Start the enforcement:
 
-Then start.
-./timezone_enforcer.sh stop
-And Stop if needed.
+bash
+Copy
+Edit
 ./timezone_enforcer.sh start
+Stop and clean up if needed:
+
+bash
+Copy
+Edit
+./timezone_enforcer.sh stop
