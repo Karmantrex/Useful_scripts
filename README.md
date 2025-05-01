@@ -1,7 +1,7 @@
 # 🕒 Timezone Enforcer for macOS
 
 This script enforces the system timezone to **America/New_York (EST)** on macOS using a LaunchAgent and helper script.
-
+this script requires to enter the system password one time.
 ---
 
 ## ⚙️ Before You Start
