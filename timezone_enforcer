@@ -1,9 +1,10 @@
 #!/bin/bash
 
-AGENT_NAME="com.lock.timezone"
+AGENT_NAME="com.timezone.enforcer"
 USERNAME=$(whoami)
-SCRIPT_PATH="/Users/$USERNAME/lock_timezone_to_est.sh"
+SCRIPT_PATH="/Users/$USERNAME/timezone_enforcer.sh"
 PLIST_PATH="/Users/$USERNAME/Library/LaunchAgents/${AGENT_NAME}.plist"
+SUDOERS_FILE="/private/etc/sudoers.d/timezone_enforcer"
 
 create_helper_script() {
     echo "[*] Creating helper script at $SCRIPT_PATH..."
@@ -23,16 +24,14 @@ ABS_OFFSET=$(echo ${OFFSET_CLEAN#-})
 THRESHOLD=60000
 
 if [[ "$CURRENT_TZ" != "$DESIRED_TZ" || $ABS_OFFSET -gt $THRESHOLD ]]; then
-    osascript <<END
-do shell script "
-/usr/sbin/systemsetup -setusingnetworktime off
-/usr/sbin/systemsetup -settimezone '$DESIRED_TZ'
-/usr/sbin/sntp -sS time.apple.com
-/usr/sbin/systemsetup -setusingnetworktime on
-killall -HUP timed
-killall SystemUIServer
-" with administrator privileges
-END
+    echo "[*] Timezone mismatch or clock skew detected. Fixing..."
+    sudo /usr/sbin/systemsetup -setusingnetworktime off
+    sudo /usr/sbin/systemsetup -settimezone "$DESIRED_TZ"
+    sudo /usr/sbin/sntp -sS time.apple.com
+    sudo /usr/sbin/systemsetup -setusingnetworktime on
+    sudo killall -HUP timed
+    sudo killall SystemUIServer
+    echo "[✓] Timezone corrected."
 fi
 EOF
 
@@ -56,9 +55,9 @@ create_launch_agent() {
         <string>${SCRIPT_PATH}</string>
     </array>
     <key>StartInterval</key>
-    <integer>1800</integer>
+    <integer>600</integer> <!-- every 10 minutes -->
     <key>RunAtLoad</key>
-    <true/>
+    <true/> <!-- run immediately on login -->
     <key>KeepAlive</key>
     <false/>
 </dict>
@@ -66,7 +65,30 @@ create_launch_agent() {
 EOF
 }
 
+add_sudoers_rule() {
+    if [ ! -f "$SUDOERS_FILE" ]; then
+        echo "[*] Adding passwordless sudoers rule..."
+        SUDOERS_LINE="$USERNAME ALL=(ALL) NOPASSWD: /usr/sbin/systemsetup, /usr/sbin/sntp, /usr/bin/killall"
+        echo "$SUDOERS_LINE" | sudo tee "$SUDOERS_FILE" >/dev/null
+        sudo chmod 440 "$SUDOERS_FILE"
+        echo "[✓] Sudoers rule added."
+    else
+        echo "[i] Sudoers rule already exists. Skipping."
+    fi
+}
+
+remove_sudoers_rule() {
+    if [ -f "$SUDOERS_FILE" ]; then
+        echo "[*] Removing sudoers rule..."
+        sudo rm -f "$SUDOERS_FILE"
+        echo "[✓] Sudoers rule removed."
+    else
+        echo "[i] No sudoers rule to remove."
+    fi
+}
+
 start_enforcement() {
+    add_sudoers_rule
     create_helper_script
     create_launch_agent
 
@@ -86,6 +108,8 @@ stop_enforcement() {
 
     echo "[*] Removing helper script and LaunchAgent plist..."
     rm -f "$SCRIPT_PATH" "$PLIST_PATH"
+
+    remove_sudoers_rule
 
     echo "[✓] Timezone enforcement stopped and cleaned up."
 }
