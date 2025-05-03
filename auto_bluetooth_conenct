@@ -1,85 +1,118 @@
 #!/usr/bin/env bash
 
+# One time setup
+# bash /path/to/autobluetooth_control.sh install
+
+# To start
+# autobluetooth_control.sh start
+
+# To see status
+# autobluetooth_control.sh status
+
+# To stop
+# autobluetooth_control.sh stop
+
+
+# ————————————————
+# autobluetooth_control.sh
+# A) install prerequisites & copy to ~/bin
+# B) start/stop/status/run your 10-min auto-connect job
+# ————————————————
+
 # ————————————————
 # Configuration
 # ————————————————
 LAUNCH_LABEL="com.autobluetooth.autoconnect"
 PLIST_PATH="$HOME/Library/LaunchAgents/${LAUNCH_LABEL}.plist"
 CONFIG_FILE="$HOME/.autobluetooth_autoconnect_device"
+SCRIPT_NAME="autobluetooth_control.sh"
+TARGET_PATH="$HOME/bin/$SCRIPT_NAME"
 
-# Find blueutil
-BLUEUTIL="$(which blueutil)"
-if [[ -z "$BLUEUTIL" ]]; then
-  echo "❌  blueutil not found. Install with: brew install blueutil"
-  exit 1
-fi
+# Detect shell rc file for PATH edits
+detect_rc() {
+  case "${SHELL##*/}" in
+    zsh)  echo "$HOME/.zshrc";  ;;
+    bash) echo "$HOME/.bash_profile"; ;;
+    *)    echo "$HOME/.profile"; ;;
+  esac
+}
 
 # ————————————————
 # Helpers
 # ————————————————
-list_and_choose() {
-  echo "🔍 Fetching paired Bluetooth devices..."
-  mapfile -t DEVICES < <("$BLUEUTIL" --paired)
-  if [[ ${#DEVICES[@]} -eq 0 ]]; then
-    echo "⚠️ No paired devices found."
-    exit 1
+
+install_prereqs() {
+  # 1) Homebrew
+  if ! command -v brew &>/dev/null; then
+    echo "🍺 Installing Homebrew…"
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  fi
+
+  # 2) blueutil
+  if ! command -v blueutil &>/dev/null; then
+    echo "🔧 Installing blueutil…"
+    brew install blueutil
+  fi
+
+  # 3) ~/bin & copy self
+  echo "📂 Ensuring ~/bin exists…"
+  mkdir -p "$HOME/bin"
+  echo "📋 Copying script to ~/bin/$SCRIPT_NAME…"
+  cp "$BASH_SOURCE" "$TARGET_PATH"
+  chmod +x "$TARGET_PATH"
+
+  # 4) PATH in shell rc
+  RC_FILE="$(detect_rc)"
+  if ! grep -qx 'export PATH="$HOME/bin:$PATH"' "$RC_FILE" 2>/dev/null; then
+    echo 'export PATH="$HOME/bin:$PATH"' >> "$RC_FILE"
+    echo "🔁 Added ~/bin to PATH in $RC_FILE"
   fi
 
   echo
-  printf "Choose a device to auto-connect:\n\n"
+  echo "✅ Installation complete!"
+  echo "- Restart your shell or run: source $RC_FILE"
+  echo "- Then you can use: $SCRIPT_NAME {install|start|status|stop}"
+}
+
+list_and_choose() {
+  echo "🔍 Fetching paired Bluetooth devices..."
+  mapfile -t DEVICES < <(blueutil --paired)
+  [[ ${#DEVICES[@]} -gt 0 ]] || { echo "⚠️ No paired devices found."; exit 1; }
+
+  echo; printf "Choose a device to auto-connect:\n\n"
   for i in "${!DEVICES[@]}"; do
-    line="${DEVICES[$i]}"
-    # assume first token is MAC, rest is name
-    mac="${line%% *}"
-    name="${line#* }"
+    mac="${DEVICES[$i]%% *}"
+    name="${DEVICES[$i]#* }"
     printf "  [%d] %s (%s)\n" $((i+1)) "$name" "$mac"
   done
-  echo
+  echo; read -rp "Enter number: " sel
 
-  read -rp "Enter number: " sel
-  if ! [[ "$sel" =~ ^[0-9]+$ ]] \
-     || (( sel < 1 || sel > ${#DEVICES[@]} )); then
-    echo "🚫 Invalid selection."
-    exit 1
+  if ! [[ "$sel" =~ ^[1-9][0-9]*$ ]] || (( sel > ${#DEVICES[@]} )); then
+    echo "🚫 Invalid selection."; exit 1
   fi
 
   choice="${DEVICES[$((sel-1))]}"
-  chosen_mac="${choice%% *}"
-  chosen_name="${choice#* }"
-  echo "✅ Selected: $chosen_name ($chosen_mac)"
-  echo "$chosen_mac" >| "$CONFIG_FILE"
+  echo "${choice%% *}" >| "$CONFIG_FILE"
+  echo "✅ Saved ‘${choice#* }’ for auto-connect."
 }
 
 install_launch_agent() {
-  echo "⚙️  Installing LaunchAgent…"
-
-  mkdir -p "$(dirname "$PLIST_PATH")"
   cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" 
-   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-    <string>${LAUNCH_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${BASH_SOURCE[0]}</string>
-    <string>run</string>
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$LAUNCH_LABEL</string>
+  <key>ProgramArguments</key><array>
+    <string>$TARGET_PATH</string><string>run</string>
   </array>
-  <key>StartInterval</key>
-    <integer>600</integer>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key>
-    <string>/usr/local/bin:/usr/bin:/bin</string>
+  <key>StartInterval</key><integer>600</integer>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin:$HOME/bin</string>
   </dict>
-  <key>StandardOutPath</key>
-    <string>/tmp/autobluetooth.out</string>
-  <key>StandardErrorPath</key>
-    <string>/tmp/autobluetooth.err</string>
-</dict>
-</plist>
+  <key>StandardOutPath</key><string>/tmp/autobluetooth.out</string>
+  <key>StandardErrorPath</key><string>/tmp/autobluetooth.err</string>
+</dict></plist>
 EOF
 
   launchctl unload "$PLIST_PATH" 2>/dev/null
@@ -88,27 +121,17 @@ EOF
 }
 
 uninstall_launch_agent() {
-  echo "🛑 Disabling auto-connect…"
-  if [[ -f "$PLIST_PATH" ]]; then
-    launchctl unload "$PLIST_PATH"
-    rm -f "$PLIST_PATH"
-    echo "🗑  LaunchAgent removed."
-  else
-    echo "ℹ️  No LaunchAgent found."
-  fi
-  rm -f "$CONFIG_FILE"
+  launchctl unload "$PLIST_PATH" 2>/dev/null && echo "🛑 Unloaded LaunchAgent."
+  rm -f "$PLIST_PATH" "$CONFIG_FILE"
+  echo "🗑️  Cleaned up config & plist."
 }
 
 run_connect() {
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "⚠️  No device set. Run with ‘start’ first."
-    exit 1
-  fi
+  [[ -f "$CONFIG_FILE" ]] || { echo "⚠️  No device set—run ‘start’ first."; exit 1; }
   mac="$(<"$CONFIG_FILE")"
-  status="$("$BLUEUTIL" --is-connected "$mac")"
-  if [[ "$status" -eq 0 ]]; then
+  if [[ "$(blueutil --is-connected "$mac")" -eq 0 ]]; then
     echo "🔗 Connecting to $mac…"
-    "$BLUEUTIL" --connect "$mac"
+    blueutil --connect "$mac"
   else
     echo "✅ Already connected to $mac."
   fi
@@ -118,29 +141,41 @@ run_connect() {
 # Main
 # ————————————————
 case "$1" in
+  install)
+    install_prereqs
+    ;;
+
   start)
     list_and_choose
     install_launch_agent
     ;;
+
   stop)
     uninstall_launch_agent
     ;;
+
   status)
-    launchctl list | grep -q "$LAUNCH_LABEL" \
-      && echo "✅ Auto-connect is running." \
-      || echo "⚠️  Auto-connect is not running."
+    if launchctl list | grep -q "$LAUNCH_LABEL"; then
+      echo "✅ Auto-connect is running."
+    else
+      echo "⚠️ Auto-connect is not running."
+    fi
     ;;
+
   run)
     run_connect
     ;;
+
   *)
     cat <<USAGE
 
-Usage: $(basename "$0") {start|stop|status}
+Usage: $SCRIPT_NAME {install|start|stop|status|run}
 
-  start   → pick a device & kick off your 10-min auto-connect job  
-  stop    → cancel the job & remove config  
-  status  → see if it’s loaded  
+  install → one-shot setup: brew, blueutil, copy & chmod, PATH
+  start   → select device & schedule every-10-min job
+  stop    → cancel job + wipe config
+  status  → show if auto-connect is active
+  run     → internal; you don’t normally call this
 
 USAGE
     exit 1
